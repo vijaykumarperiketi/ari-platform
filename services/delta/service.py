@@ -1,24 +1,25 @@
-from services.events.bus import EventBus
-from services.events.models import Event
-from services.events.topics import EVENTS
-from services.common.logger import get_logger
-from datetime import datetime
-
-log = get_logger("delta")
-bus = EventBus()
+from services.common.database import SessionLocal
+from services.common.models import Document
 
 class DeltaService:
     def handle(self, document: dict):
-        log.info("Checking delta")
+        db = SessionLocal()
 
-        # Placeholder for real hashing + version logic
-        changed = True
+        record = db.query(Document).filter_by(
+            document_id=document["document_id"]
+        ).first()
 
-        if changed:
-            event = Event(
-                event_type=EVENTS["CONTENT_CHANGED"],
-                timestamp=datetime.utcnow(),
-                producer="delta",
-                payload=document
-            )
-            bus.publish(EVENTS["CONTENT_CHANGED"], event)
+        if not record:
+            return  # shouldn't happen — ingestion guarantees existence
+
+        event = Event(
+            event_type=EVENTS["CONTENT_CHANGED"],
+            timestamp=datetime.utcnow(),
+            producer="delta",
+            payload={
+                "document_id": record.document_id,
+                "version": record.version
+            }
+        )
+
+        bus.publish(EVENTS["CONTENT_CHANGED"], event)
