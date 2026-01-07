@@ -1,21 +1,29 @@
-from services.events.bus import EventBus
-from services.events.models import Event
-from services.events.topics import EVENTS
-from services.common.logger import get_logger
-from datetime import datetime
-
-log = get_logger("ingestion")
-bus = EventBus()
+import hashlib
+from services.common.database import SessionLocal
+from services.common.models import Document
 
 class IngestionService:
     def ingest(self, document: dict):
-        log.info("Ingesting document")
+        db = SessionLocal()
 
-        event = Event(
-            event_type=EVENTS["INGEST_COMPLETED"],
-            timestamp=datetime.utcnow(),
-            producer="ingestion",
+        raw = str(document).encode()
+        content_hash = hashlib.sha256(raw).hexdigest()
+
+        existing = db.query(Document).filter_by(
+            document_id=document["document_id"]
+        ).first()
+
+        if existing and existing.content_hash == content_hash:
+            return  # Safe no‑op
+
+        version = 1 if not existing else existing.version + 1
+
+        record = Document(
+            document_id=document["document_id"],
+            version=version,
+            content_hash=content_hash,
             payload=document
         )
 
-        bus.publish(EVENTS["INGEST_COMPLETED"], event)
+        db.merge(record)
+        db.commit()
